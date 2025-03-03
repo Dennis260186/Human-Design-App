@@ -1,5 +1,5 @@
 streamlit
 matplotlib
 numpy
-requests
 fpdf
+ephem
