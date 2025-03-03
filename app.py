@@ -1,8 +1,8 @@
 import streamlit as st
 from datetime import datetime
 from fpdf import FPDF
+import ephem  # NEU: Offline-Berechnung der Planetenpositionen
 import random
-import requests
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -23,27 +23,30 @@ def berechne_human_design(name, geburtsdatum, geburtszeit, geburtsort):
     }
 
 # ---------------------------
-# Astrologie API Berechnungen (ersetzt Swiss Ephemeris)
+# Offline-Berechnung der astrologischen Planetenpositionen mit ephem
 # ---------------------------
-ASTRO_API_URL = "https://api.astrologyapi.com/v1/planets"
-ASTRO_API_KEY = "DEIN_API_KEY"  # Bitte hier den API-Schlüssel einfügen
+def astrologischer_chart(geburtsdatum, geburtszeit):
+    observer = ephem.Observer()
+    observer.date = f"{geburtsdatum} {geburtszeit.hour}:{geburtszeit.minute}:00"
 
-def astrologischer_chart(geburtsdatum, geburtszeit, geburtsort):
-    payload = {
-        "date": geburtsdatum.strftime("%Y-%m-%d"),
-        "time": geburtszeit.strftime("%H:%M"),
-        "location": geburtsort
+    planeten = {
+        "Sonne": ephem.Sun(observer),
+        "Mond": ephem.Moon(observer),
+        "Merkur": ephem.Mercury(observer),
+        "Venus": ephem.Venus(observer),
+        "Mars": ephem.Mars(observer),
+        "Jupiter": ephem.Jupiter(observer),
+        "Saturn": ephem.Saturn(observer),
+        "Uranus": ephem.Uranus(observer),
+        "Neptun": ephem.Neptune(observer),
+        "Pluto": ephem.Pluto(observer)
     }
-    headers = {
-        "Authorization": f"Bearer {ASTRO_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    response = requests.post(ASTRO_API_URL, json=payload, headers=headers)
 
-    if response.status_code == 200:
-        return response.json()
-    else:
-        return {"error": "Astrologie API konnte nicht abgerufen werden"}
+    chart = {}
+    for planet, obj in planeten.items():
+        chart[planet] = f"{np.degrees(obj.ra)}° im Sternzeichen {ephem.constellation(obj)[1]}"
+
+    return chart
 
 # ---------------------------
 # Astrologie-Radix Darstellung
@@ -54,10 +57,10 @@ def zeichne_radix(chart):
     ax.set_ylim(-1, 1)
 
     for planet, daten in chart.items():
-        if isinstance(daten, dict) and "longitude" in daten:
-            x = np.cos(np.radians(daten["longitude"]))
-            y = np.sin(np.radians(daten["longitude"]))
-            ax.scatter(x, y, label=f'{planet}', s=100)
+        grad = float(daten.split("°")[0])
+        x = np.cos(np.radians(grad))
+        y = np.sin(np.radians(grad))
+        ax.scatter(x, y, label=f'{planet}', s=100)
 
     ax.legend()
     return fig
@@ -97,8 +100,7 @@ def erstelle_pdf(report_data):
     pdf.set_font("Arial", size=12)
     
     for planet, daten in report_data['chart'].items():
-        if isinstance(daten, dict) and "longitude" in daten:
-            pdf.cell(0, 10, f"{planet}: {daten['longitude']}°", ln=True)
+        pdf.cell(0, 10, f"{planet}: {daten}", ln=True)
 
     pdf.ln(10)
 
@@ -120,14 +122,11 @@ geburtszeit = st.sidebar.time_input("Geburtszeit", value=datetime(1986, 1, 26, 1
 
 # Berechnungen
 human_design = berechne_human_design(name, geburtsdatum, geburtszeit, geburtsort)
-chart = astrologischer_chart(geburtsdatum, geburtszeit, geburtsort)
+chart = astrologischer_chart(geburtsdatum, geburtszeit)
 
 st.subheader("📊 Dein Geburtshoroskop")
-if "error" not in chart:
-    fig = zeichne_radix(chart)
-    st.pyplot(fig)
-else:
-    st.error(chart["error"])
+fig = zeichne_radix(chart)
+st.pyplot(fig)
 
 st.subheader("🔮 Human Design Ergebnisse")
 for key, value in human_design.items():
