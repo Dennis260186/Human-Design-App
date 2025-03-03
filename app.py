@@ -1,7 +1,11 @@
 import streamlit as st
 from datetime import datetime
 from fpdf import FPDF
+import swisseph as swe
 import random
+import matplotlib.pyplot as plt
+import numpy as np
+import base64
 
 # ---------------------------
 # Human Design Berechnung
@@ -22,33 +26,33 @@ def berechne_human_design(name, geburtsdatum, geburtszeit, geburtsort):
 # ---------------------------
 # Astrologische Berechnungen
 # ---------------------------
-def astrologischer_chart(name, geburtsdatum, geburtszeit, geburtsort):
-    tierkreiszeichen = [
-        "Widder", "Stier", "Zwillinge", "Krebs", "Löwe", "Jungfrau",
-        "Waage", "Skorpion", "Schütze", "Steinbock", "Wassermann", "Fische"
-    ]
-    
-    planeten = ["Sonne", "Mond", "Merkur", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptun", "Pluto"]
-    
-    chart = {}
+def astrologischer_chart(geburtsdatum, geburtszeit):
+    swe.set_ephe_path('/usr/share/ephe')  # Standard-Ephemeridenpfad
+    jd = swe.julday(geburtsdatum.year, geburtsdatum.month, geburtsdatum.day, geburtszeit.hour + geburtszeit.minute / 60.0)
+    planeten = [swe.SUN, swe.MOON, swe.MERCURY, swe.VENUS, swe.MARS, swe.JUPITER, swe.SATURN, swe.URANUS, swe.NEPTUNE, swe.PLUTO]
+    planet_positions = {}
+
     for planet in planeten:
-        haus = random.randint(1, 12)  
-        zeichen = random.choice(tierkreiszeichen)
-        chart[planet] = {"Haus": haus, "Zeichen": zeichen}
-    
-    return chart
+        position, _ = swe.calc_ut(jd, planet)
+        planet_positions[planet] = position[0]
+
+    return planet_positions
 
 # ---------------------------
-# Chinesische Astrologie
+# Astrologie-Radix Darstellung
 # ---------------------------
-def berechne_chinesisches_zeichen(geburtsjahr):
-    tiere = ["Ratte", "Ochse", "Tiger", "Hase", "Drache", "Schlange", "Pferd", "Ziege", "Affe", "Hahn", "Hund", "Schwein"]
-    elemente = ["Holz", "Feuer", "Erde", "Metall", "Wasser"]
-    
-    tier_index = (geburtsjahr - 1900) % 12
-    element_index = (geburtsjahr - 1900) % 10 // 2  
+def zeichne_radix(planet_positions):
+    fig, ax = plt.subplots(figsize=(6,6))
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
 
-    return {"Tierkreiszeichen": tiere[tier_index], "Element": elemente[element_index]}
+    for planet, pos in planet_positions.items():
+        x = np.cos(np.radians(pos))
+        y = np.sin(np.radians(pos))
+        ax.scatter(x, y, label=f'Planet {planet}', s=100)
+
+    ax.legend()
+    return fig
 
 # ---------------------------
 # PDF-Generierung
@@ -85,16 +89,8 @@ def erstelle_pdf(report_data):
     pdf.set_font("Arial", size=12)
     
     for planet, daten in report_data['chart'].items():
-        pdf.cell(0, 10, f"{planet}: {daten['Zeichen']} im {daten['Haus']}. Haus", ln=True)
+        pdf.cell(0, 10, f"{planet}: {daten}", ln=True)
 
-    pdf.ln(10)
-
-    # Chinesische Astrologie
-    pdf.set_font("Arial", style='B', size=14)
-    pdf.cell(200, 10, "Chinesisches Sternzeichen", ln=True)
-    pdf.set_font("Arial", size=12)
-    for key, value in report_data['chinesisch'].items():
-        pdf.cell(0, 10, f"{key}: {value}", ln=True)
     pdf.ln(10)
 
     # Speichern als PDF
@@ -115,19 +111,14 @@ geburtszeit = st.sidebar.time_input("Geburtszeit", value=datetime(1986, 1, 26, 1
 
 # Berechnungen
 human_design = berechne_human_design(name, geburtsdatum, geburtszeit, geburtsort)
-chart = astrologischer_chart(name, geburtsdatum, geburtszeit, geburtsort)
-chinesisch = berechne_chinesisches_zeichen(geburtsdatum.year)
+chart = astrologischer_chart(geburtsdatum, geburtszeit)
 
 st.subheader("📊 Dein Geburtshoroskop")
-for planet, daten in chart.items():
-    st.write(f"**{planet}:** {daten['Zeichen']} im {daten['Haus']}. Haus")
+fig = zeichne_radix(chart)
+st.pyplot(fig)
 
 st.subheader("🔮 Human Design Ergebnisse")
 for key, value in human_design.items():
-    st.write(f"**{key}:** {value}")
-
-st.subheader("🐉 Chinesisches Sternzeichen")
-for key, value in chinesisch.items():
     st.write(f"**{key}:** {value}")
 
 # PDF-Download
@@ -138,8 +129,7 @@ if st.button("📥 Erstelle & lade deinen Report als PDF herunter"):
         "geburtsdatum": geburtsdatum.strftime("%d.%m.%Y"),
         "geburtszeit": geburtszeit.strftime("%H:%M"),
         "human_design": human_design,
-        "chart": chart,
-        "chinesisch": chinesisch
+        "chart": chart
     }
     pdf_file = erstelle_pdf(report_data)
     with open(pdf_file, "rb") as file:
